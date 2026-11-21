@@ -1,0 +1,62 @@
+# Private configs & secrets (never commit!)
+config.ini
+*.ini
+!config.ini.example
+.env
+.env.*
+*.key
+*.pem
+
+# Build outputs & cross-compile caches
+build/
+build-*/
+dist/
+dist-*/
+stage-*/
+*.o
+*.a
+*.so
+*.so.*
+xiaoai_plus_speaker
+xiaoai_native_speaker
+xiaoai_native_probe
+
+# Third-party downloaded sources, static libs, models, certificates & firmware
+xiaoai-plus/assets/sherpa-onnx-src/
+xiaoai-plus/assets/sherpa_onnx_static/
+xiaoai-plus/assets/tokens.txt
+xiaoai-plus/assets/en.phone
+*.onnx
+*.crt
+*.tar.gz
+*.tar.bz2
+*.zip
+*.squashfs
+*.bin
+*.img
+
+# Audio recordings, logs & local scratch
+*.wav
+*.pcm
+*.raw
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.aac
+*.log
+*.sqlite*
+.local/
+backup/
+re/
+firmware/
+
+# OS / Editor / Python caches
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.idea/
+.vscode/

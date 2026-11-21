@@ -1,0 +1,6 @@
+* text=auto
+*.sh text eol=lf
+*.patch text eol=lf
+*.cmake text eol=lf
+xiaoai-plus/keywords/*.txt text eol=lf
+xiaoai-plus/assets/*.txt text eol=lf

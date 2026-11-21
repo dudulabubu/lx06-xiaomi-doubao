@@ -1,0 +1,66 @@
+[realtime]
+# 火山引擎豆包端到端实时语音协议（推荐 o2；如需回退可改 v3）
+protocol = o2
+# 必填：替换为你的火山引擎实时语音 API Key（正式 config.ini 必须 chmod 600，切勿提交到仓库）
+api_key = your_api_key
+model = 1.2.6.1
+voice = zh_female_vv_jupiter_bigtts
+bot_name = 豆包
+system_role = 你是豆包，是小爱音箱上的中文日常语音助手。请用自然、简洁、易懂的中文回答问题；遇到天气、新闻、百科等实时问题时，善用联网搜索给出准确回答。
+speaking_style = 语气温暖、亲切、自然简洁，像家里懂很多知识的好朋友。
+
+[realtime.o2]
+# smart_turn 开启时，云端静音窗口仅作兜底
+end_smooth_window_ms = 2500
+voice = zh_female_vv_jupiter_bigtts
+# 可选：火山引擎联网搜索 API Key（留空则关闭联网搜索）
+# websearch_api_key = your_volcengine_websearch_api_key
+websearch_type = web
+
+[wakeup]
+# 仅作用于本地唤醒通道的自适应增益（含首字峰值防削波），不影响云端上行
+kws_agc = on
+# 唤醒后未立刻开口说话时的简短应答词；若直接紧跟提问则自动跳过并立刻回答
+say_hello = 在呢
+# 可选：使用预先录好的提示音代替本地“嘀”声（关闭即可）
+spoken_cues = off
+# 词表路径（若采用 /tmp RAM 运行方案，请指向解压后的路径或相对路径）
+keywords_file = keywords/keywords_doubao_repeat_end.txt
+# LX06 24-bit PDM 麦克风原始数据右移位数（8..16）
+# 14 = 与小米原厂 AudioRecord_Read 一致；13 = +6dB，短句/远场/儿童更灵敏（推荐）
+s32_shift = 13
+# beamformed = 6 麦环形阵全开波束成形；也可填 0..5 指定单麦调试
+input_channel = beamformed
+kws_threshold = 0.06
+kws_num_threads = 2
+# 本地退出词置信度门槛，防误退出
+exit_playback_threshold = 0.75
+
+[conversation]
+# 回复结束后继续等待下一句话的静默超时（秒，1..900）
+idle_seconds = 120
+smart_turn = on
+smart_turn_complete_ms = 1200
+smart_turn_open_ms = 3000
+absolute_timeout_seconds = 0
+# 推荐 half：配合 SubbandAec 实现播放中喊“豆包豆包”打断并继续监听
+duplex_mode = half
+echo_canceller = apm
+daily_token_limit = 0
+
+[audio]
+# 豆包 O2 原始 TTS 电平偏低，配合内置 tanh 软限幅，2.40~2.60 可与原版小爱音量持平且不破音
+playback_gain = 2.60
+dump_output_audio_raw = 0
+
+[memory]
+# 如需跨天记忆/多儿童识别，可另行部署记忆后台并启用
+enabled = off
+server_url = https://example.invalid
+device_secret =
+cache_dir = /data/xiaoai-plus/memory
+identity_text_log = off
+
+[stop_key]
+device =
+key_code = -1
