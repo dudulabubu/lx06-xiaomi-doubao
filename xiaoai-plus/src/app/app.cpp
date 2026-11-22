@@ -1037,7 +1037,7 @@ bool App::Run() {
       cfg_.audio.input_device, cfg_.audio.sample_rate, cfg_.audio.channels,
       cfg_.audio.bits_per_sample, cfg_.audio.buffer_size, cfg_.audio.period_size,
       cfg_.wakeup.kws_threshold,cfg_.wakeup.kws_num_threads);
-  kLog->info("kws AGC {}: frame=10ms smoothing=100ms target=-25dBFS gain=0..24dB NS=off",
+  kLog->info("kws AGC {}: frame=10ms attack=20ms release=250ms target=-22.5dBFS gain=0..21.5dB peak_cap=26000",
              cfg_.wakeup.kws_agc ? "enabled" : "disabled");
   if (kws_stats_) {
     kLog->info("kws-diag input conversion shift={} mono_source={}", kws_s32_shift_,
@@ -1090,16 +1090,6 @@ bool App::Run() {
     if (!stop_key_->Start()) kLog->warn("stop key unavailable; verify input mapping");
   }
   kLog->info("app components started");
-
-  if (!kws_only_) {
-    std::thread([]() {
-      try {
-        const int rc = std::system("/bin/sh /usr/sbin/tts_play.sh '豆包已启动' >/dev/null 2>&1");
-        if (rc != 0) kLog->warn("startup tts command failed: rc={}", rc);
-      } catch (const std::exception& e) { kLog->error("startup tts thread: {}", e.what()); }
-        catch (...) { kLog->error("startup tts thread unknown exception"); }
-    }).detach();
-  }
 
   {
     std::unique_lock<std::mutex> lock(run_mu_);
@@ -1329,20 +1319,6 @@ void App::OnInputAudio(const std::vector<uint8_t>& chunk) {
     }
   }
   const auto downmix_start = std::chrono::steady_clock::now();
-  if (kws_input_channel_ >= 0) {
-    ExtractChannelS16(s16_buf_, cfg_.audio.channels, kws_input_channel_, &kws_mono_buf_);
-  } else {
-    DownmixToMono(s16_buf_, cfg_.audio.channels, &kws_mono_buf_);
-  }
-  // Cloud uplink: use the full 6-mic beamformed signal (+7.8 dB SNR over single mic) before KWS AGC.
-  // Only full-duplex linear SubbandAec uses single mic ch0 for fixed echo path stability.
-  if (full_aec_ && cfg_.audio.channels >= 2) {
-    ExtractChannelS16(s16_buf_, cfg_.audio.channels, 0, &capture_mono_buf_);
-  } else if (kws_input_channel_ < 0) {
-    capture_mono_buf_ = kws_mono_buf_;
-  } else {
-    DownmixToMono(s16_buf_, cfg_.audio.channels, &capture_mono_buf_);
-  }
   // LX06 8-ch hardware loopback reference is ch7 (verified from Xiaomi libxaudio_engine AudioRecord_Read).
   // OH2P 4-ch loopback reference is ch3.
   if (cfg_.audio.channels >= 8) {
@@ -1352,19 +1328,60 @@ void App::OnInputAudio(const std::vector<uint8_t>& chunk) {
   } else {
     reverse_ref_buf_.clear();
   }
+
+  bool ref_playing = false;
+  if (!reverse_ref_buf_.empty()) {
+    const auto* ref = reinterpret_cast<const int16_t*>(reverse_ref_buf_.data());
+    const size_t n_ref = reverse_ref_buf_.size() / sizeof(int16_t);
+    for (size_t i = 0; i < n_ref; ++i) {
+      if (ref[i] > 4 || ref[i] < -4) {
+        ref_playing = true;
+        break;
+      }
+    }
+  }
+
+  const bool use_lx06_bf =
+      (cfg_.audio.channels == 8) &&
+      (s16_buf_.size() >= sizeof(int16_t) * 8) &&
+      (s16_buf_.size() % (sizeof(int16_t) * 8) == 0);
+  if (kws_input_channel_ >= 0) {
+    ExtractChannelS16(s16_buf_, cfg_.audio.channels, kws_input_channel_, &kws_mono_buf_);
+  } else if (use_lx06_bf) {
+    beamformer_.Process(reinterpret_cast<const int16_t*>(s16_buf_.data()),
+                        s16_buf_.size() / (sizeof(int16_t) * 8), 8,
+                        ref_playing, &kws_mono_buf_);
+    const bool tv_now = beamformer_.tv_mode();
+    const int dir_now = beamformer_.active_dir_deg();
+    if (tv_now != last_bf_tv_mode_ || (tv_now && dir_now != last_bf_dir_deg_)) {
+      kLog->info("lx06-bf mode={} dir_deg={} floor_ratio={:.2f}",
+                 tv_now ? "anti-tv-cardioid" : "dsb", dir_now, beamformer_.floor_ratio());
+      last_bf_tv_mode_ = tv_now;
+      last_bf_dir_deg_ = dir_now;
+    }
+  } else {
+    DownmixToMono(s16_buf_, cfg_.audio.channels, &kws_mono_buf_);
+  }
+  // Cloud uplink: use the same 6-mic spatial beamformed signal (DSB when quiet,
+  // anti-TV cardioid when TV is playing) before KWS AGC.
+  // Only full-duplex linear SubbandAec uses single mic ch0 for fixed echo path stability.
+  if (full_aec_ && cfg_.audio.channels >= 2) {
+    ExtractChannelS16(s16_buf_, cfg_.audio.channels, 0, &capture_mono_buf_);
+  } else if (kws_input_channel_ < 0) {
+    capture_mono_buf_ = kws_mono_buf_;
+  } else if (use_lx06_bf) {
+    beamformer_.Process(reinterpret_cast<const int16_t*>(s16_buf_.data()),
+                        s16_buf_.size() / (sizeof(int16_t) * 8), 8,
+                        ref_playing, &capture_mono_buf_);
+  } else {
+    DownmixToMono(s16_buf_, cfg_.audio.channels, &capture_mono_buf_);
+  }
   // When the speaker is actively playing (e.g., Doubao speaking or music), cancel speaker echo
   // from the KWS stream via linear SubbandAec so "豆包豆包" barge-in interrupt stays responsive
   // without attenuating overlapping human speech. Zero CPU cost when speaker is silent.
   if (kws_aec_ && !reverse_ref_buf_.empty() && reverse_ref_buf_.size() == kws_mono_buf_.size()) {
     const auto* ref = reinterpret_cast<const int16_t*>(reverse_ref_buf_.data());
     const size_t n_frames = reverse_ref_buf_.size() / sizeof(int16_t);
-    bool ref_playing = false;
-    for (size_t i = 0; i < n_frames; ++i) {
-      if (ref[i] > 4 || ref[i] < -4) {
-        ref_playing = true;
-        break;
-      }
-    }
     if (ref_playing) {
       kws_aec_cooldown_ = 8;  // ~720 ms flush tail after playback stops
     } else if (kws_aec_cooldown_ > 0) {

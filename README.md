@@ -37,18 +37,20 @@
 深入分析 LX06 `/etc/asound.conf` 与原厂 `libxaudio_engine.so` 后，修复了直接跑上游代码在 LX06 上的两个致命硬件不兼容问题（详见 [docs/LX06_AUDIO_ANALYSIS.md](docs/LX06_AUDIO_ANALYSIS.md)）：
 - **修复 `ch3` 错把 4 号麦克风当回采、WebRTC 把人声自己抵消掉的致命 Bug**：LX06 为 8 声道硬件（`ch0~ch5` 6 颗实体麦，`ch7` 功放回采），已改为准确使用 **`ch7`** 作为回声参考。
 - **绕开 ALSA `speexrate_medium` 16-bit 预截断**：改为硬件原生 **`48000 Hz / 8 ch / S32_LE`** 采集，在应用层通过 **31 阶对称 Kaiser 低通 FIR** 在 24-bit 浮点精度下 3:1 降采样到 16 kHz + 50 Hz 去直流滤波，远场与儿童轻声的清晰度质变。
-- **6 麦环形阵列全开波束成形**：将 `DownmixToMono` 扩展为全部 6 颗麦（`ch0~ch5`，`max_lag = ±4`）对齐叠加并带静音帧相位防抖，同时服务本地唤醒与半双工云端上行。
+- **6 麦环形阵列物理空间波束成形 + 自动抗电视心形零点**：直接提取小米原厂 `libxaudio_engine.so` 中 LX06 精确 6 麦坐标（`R = 3.50 cm`，60° 均匀分布），实现 12 方向（每 30°）分数延迟波束成形：
+  - 安静房间：基于心形空间能量 DOA 指向说话人，输出分数延迟 `DSB` 波束（+7.8 dB 增益，彻底消除普通 6 麦均值在 3.5 kHz 的 `J₀` 梳状零点）；
+  - 看电视 / 持续方向性噪声环境（≥ 2.5 秒）：自动锁定电视方向并平滑切换为**抗电视心形波束**，将空间零点精准对准电视（实测 0 dB / -3 dB 电视噪比下唤醒率由旧版 3~7% 跃升至 77~93%），同时兼顾云端对话上行清晰度。
 - **重配 WebRTC 语音前端**：启用 80 Hz HPF + `kModerate` 降噪 + `kAdaptiveDigital` AGC（最高 `+18 dB` 语音自适应增益 + 限幅器），短句、远场与儿童声音更饱满。
 - **彻底消除录音 `overrun`**：扩容 `arecord` pipe 至 1 MB + 异步队列线程解耦 + `nice -n -10` 启动优先级。
 
-### 2. 唤醒灵敏度与播报中打断优化
-- **修复 `KwsAgc` 慢攻击首字削波**：增加每 10 ms 帧前瞻峰值限幅 + 20 ms 极速压限 + `tanh` 软拐点，从安静中突然喊“豆包豆包”第一声“豆”零削波。
-- **双层“豆包豆包”唤醒匹配**：保留 4 组 `āo/ao` 混合 8 音素整句（兜底远场轻声），并增加 6 组自然/方言/儿童声调 4 音素半词（1.8 秒内命中 2 次即唤醒），快喊、带停顿喊、小朋友喊都更灵敏且单字不误触发。
+### 2. 唤醒灵敏度、抗电视误唤醒与播报中打断优化
+- **修复 `KwsAgc` 慢攻击首字削波**：增加每 10 ms 帧前瞻峰值限幅 + 20 ms 极速压限 + `tanh` 软拐点 + 静音温和限幅，从安静中突然喊“豆包豆包”第一声“豆”零削波。
+- **纯 8 音素完整唤醒词表 + `chunk-16` 模型升级**：严格避免在 `sherpa-onnx` 上下文图中混入半词前缀（否则第一遍“豆包”会中途重置编码器毁掉第二遍并造成电视高频误唤醒），改用经过多音色/远场/电视干扰实测标定的 8 组完整 8 音素词表（标准 + 轻声 + 轻度方言/儿童声调容错），配合 `chunk-16` Zipformer 模型（CPU 降低 ~35%~40%，上下文视野翻倍），实现高唤醒率与极低电视误唤醒。
 - **播报中喊“豆包豆包”打断并继续听**：喇叭出声时自动启用线性多抽头 `SubbandAec`（利用真实 `ch7` 回采消除 23~30 dB 外放声且不压人声），打断后立刻停播、“叮”一声亮蓝灯继续监听下一句并保持同一段上下文（同时修复打断后 `pending_playback_chunks_` 残留与 O2 协议重入问题）。
 
 ### 3. 中文日常助手与 LX06 系统体验完善
 - **通用中文日常对话 + 联网搜索**：移除上游纯英文儿童系统提示词限制，新增火山引擎 O2 协议联网搜索配置项（`websearch_api_key` / `websearch_type`）。
-- **LX06 原生播放与三态灯环联动**：输出 PCM 改为 `default`（LX06 无 `Playback`）、通过 `/bin/sh /usr/sbin/tts_play.sh` 播报启动提示、接入 `ubus call led` 三态灯环（聆听 / 思考 / 播报）。
+- **LX06 原生播放、静默启动与三态灯环联动**：输出 PCM 改为 `default`（LX06 无 `Playback`）、静默启动不打扰、接入 `ubus call led` 三态灯环（聆听 / 思考 / 播报）。
 - **智能双模式唤醒**：喊完“豆包豆包”直接紧跟提问会预缓冲语音并跳过“在呢”立刻回答；只喊“豆包豆包”不说话则正常回复“在呢”等待提问。
 - **原生“小爱同学”无缝共存与秒退**：适配 LX06 `/tmp/log/messages` 真实日志（LX06 无 `wakeup.sh`），豆包说话/待命期间喊“小爱同学”可在 ~80 ms 内停播、交还灯环并退出豆包模式；2 秒后恢复双唤醒待命。
 - **播放响度与长故事防截断**：新增 `tanh` 软限幅支持 `playback_gain = 2.60` 放大不破音，播放队列扩容至 512 块（讲 3 分钟长故事不断尾）。
@@ -107,10 +109,10 @@ bash scripts/build_lx06.sh
 
 由于模型权重和 CA 证书不随本源码仓库分发，请自行下载并打包成 `xiaoai-lx06.tar.gz`：
 
-1. 下载官方 Zipformer 中英 KWS 模型（[sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2](https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2)），提取：
-   - `encoder-epoch-12-avg-2-chunk-8-left-64.int8.onnx` → 重命名为 `assets/encoder.onnx`
-   - `decoder-epoch-12-avg-2-chunk-8-left-64.onnx` → 重命名为 `assets/decoder.onnx`
-   - `joiner-epoch-12-avg-2-chunk-8-left-64.int8.onnx` → 重命名为 `assets/joiner.onnx`
+1. 下载官方 Zipformer 中英 KWS 模型（[sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2](https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2)），提取 **`chunk-16`** 版本（相比 `chunk-8` 上下文视野翻倍且 CPU 占用低约 35%）：
+   - `encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx` → 重命名为 `assets/encoder.onnx`
+   - `decoder-epoch-13-avg-2-chunk-16-left-64.onnx` → 重命名为 `assets/decoder.onnx`
+   - `joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx` → 重命名为 `assets/joiner.onnx`
    - `tokens.txt` → `assets/tokens.txt`
 2. 下载 Mozilla CA 根证书包（[curl cacert.pem](https://curl.se/ca/cacert.pem)）→ 重命名为 `assets/ca-certificates.crt`。
 3. 组织如下目录并打包为 `xiaoai-lx06.tar.gz`（约 14 MB）：

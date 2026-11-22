@@ -77,7 +77,6 @@ class LocalListener {
   bool closed_{false};
   std::chrono::steady_clock::time_point prefix_birth_{};
   std::chrono::steady_clock::time_point prefix_due_{};
-  std::chrono::steady_clock::time_point half_wake_at_{};
 };
 
 }  // namespace xiaoai_plus::wakeup

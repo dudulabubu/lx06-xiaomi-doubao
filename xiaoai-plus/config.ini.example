@@ -29,9 +29,9 @@ keywords_file = keywords/keywords_doubao_repeat_end.txt
 # LX06 24-bit PDM 麦克风原始数据右移位数（8..16）
 # 14 = 与小米原厂 AudioRecord_Read 一致；13 = +6dB，短句/远场/儿童更灵敏（推荐）
 s32_shift = 13
-# beamformed = 6 麦环形阵全开波束成形；也可填 0..5 指定单麦调试
+# beamformed = LX06 6 麦 12 方向空间波束成形（安静用 DSB，开电视自动切换抗电视心形零点）；也可填 0..5 指定单麦调试
 input_channel = beamformed
-kws_threshold = 0.06
+kws_threshold = 0.10
 kws_num_threads = 2
 # 本地退出词置信度门槛，防误退出
 exit_playback_threshold = 0.75

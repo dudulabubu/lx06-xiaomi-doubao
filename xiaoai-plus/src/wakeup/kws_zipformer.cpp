@@ -105,9 +105,9 @@ sherpa_onnx::cxx::KeywordSpotter CreateSpotter(const config::Wakeup& cfg,
   c.model_config.num_threads = cfg.kws_num_threads;
   c.model_config.provider = "cpu";
   c.keywords_threshold = cfg.kws_threshold;
-  c.keywords_score = 3.5f;
+  c.keywords_score = 2.6f;
   c.num_trailing_blanks = 0;
-  c.max_active_paths = 12;
+  c.max_active_paths = 8;
   c.keywords_file = path;
   auto s = sherpa_onnx::cxx::KeywordSpotter::Create(c);
   unlink(path);

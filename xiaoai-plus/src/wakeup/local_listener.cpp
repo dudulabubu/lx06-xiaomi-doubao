@@ -64,7 +64,7 @@ LocalListener::Decision LocalListener::AnalyzePcm(const std::vector<uint8_t>& ch
   if (hit) {
     const bool strong = !StrongExitWord(hit->keyword).empty();
     if (hit->keyword == "结束" || strong) {
-      decider_.Reset();prefix_birth_ = {};half_wake_at_ = {};
+      decider_.Reset();prefix_birth_ = {};
       end_session = active && (strong || exit_enabled) && static_cast<bool>(cfg_.on_end);
       const bool playing=cfg_.gate->IsAiSpeaking();
       if(hit->score<cfg_.exit_playback_threshold)end_session=false;
@@ -74,24 +74,8 @@ LocalListener::Decision LocalListener::AnalyzePcm(const std::vector<uint8_t>& ch
       kLog->info("exit keyword={} score={:.6f} playing={} threshold={:.2f} accepted={}",
         strong?StrongExitWord(hit->keyword):"再见",hit->score,playing,
         cfg_.exit_playback_threshold,end_session);
-    } else if (allow_wake && hit->keyword == "豆包半") {
-      const bool has_first = half_wake_at_.time_since_epoch().count() != 0;
-      const auto dt_ms = has_first
-          ? std::chrono::duration_cast<std::chrono::milliseconds>(now - half_wake_at_).count()
-          : -1;
-      if (has_first && dt_ms >= 140 && dt_ms <= 1800) {
-        half_wake_at_ = {};
-        kLog->info("kws half-wake 2/2 dt_ms={} score={:.4f} -> wake 豆包豆包", dt_ms, hit->score);
-        if (cfg_.trigger->Allows("豆包豆包")) {
-          decided = decider_.OnHit("豆包豆包", now);
-          if (decided) prefix_birth_ = {};
-        }
-      } else if (!has_first || dt_ms > 1800) {
-        half_wake_at_ = now;
-        kLog->info("kws half-wake 1/2 score={:.4f} (waiting 2nd 豆包 within 1.8s)", hit->score);
-      }
     } else if (allow_wake && cfg_.trigger->Allows(hit->keyword)) {
-      half_wake_at_ = {};
+      kLog->info("kws wake keyword={} score={:.4f}", hit->keyword, hit->score);
       if (prefix_birth_.time_since_epoch().count()) {decision_birth = prefix_birth_;held_prefix = true;}
       decided = decider_.OnHit(hit->keyword, now);
       if (!decided && !prefix_birth_.time_since_epoch().count()) {prefix_birth_ = birth;prefix_due_ = now + std::chrono::milliseconds(1100);due = prefix_due_;}
@@ -106,7 +90,7 @@ LocalListener::Decision LocalListener::AnalyzePcm(const std::vector<uint8_t>& ch
   if (cfg_.bounded_decisions && ((!held_prefix && (decision_birth.time_since_epoch().count()==0 ||
       now < decision_birth || now-decision_birth > std::chrono::milliseconds(500))) ||
       (held_prefix && now > due + std::chrono::milliseconds(500)))) {
-    decider_.Reset();prefix_birth_ = {};half_wake_at_ = {};return {};
+    decider_.Reset();prefix_birth_ = {};return {};
   }
   if (decided && last_trigger_.time_since_epoch().count() > 0 &&
       now-last_trigger_ < std::chrono::milliseconds(cfg_.min_trigger_interval_ms)) return {};
@@ -127,7 +111,7 @@ void LocalListener::NoteAccepted() {
 void LocalListener::Reset() {
   std::lock_guard<std::mutex> lock(mu_);
   if (closed_) return;
-  decider_.Reset();prefix_birth_ = {};half_wake_at_ = {};
+  decider_.Reset();prefix_birth_ = {};
   was_active_=false;was_ai_speaking_=false;was_exit_allowed_=false;
   exit_enabled_=false;strong_enabled_=false;
   active_since_={};ai_quiet_since_={};

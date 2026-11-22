@@ -140,6 +140,9 @@ class App {
   int kws_s32_shift_{14};
   int kws_input_channel_{-1};
   audio::Lx06Decimator48To16 decimator_;
+  audio::Lx06SpatialBeamformer beamformer_;
+  bool last_bf_tv_mode_{false};
+  int last_bf_dir_deg_{-1};
 
   mutable std::mutex state_mu_;
   Lifecycle lifecycle_{Lifecycle::kInit};
